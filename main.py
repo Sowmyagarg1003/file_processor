@@ -2,32 +2,31 @@ import csv
 import os
 import re
 import shutil
-import psycopg2  # Replaced sqlite3 with psycopg2 for PostgreSQL
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
+import psycopg2
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-# Limit the number of concurrent threads
-executor = ThreadPoolExecutor(max_workers=3)  # Reduced from 5 to 3
+executor = ThreadPoolExecutor(max_workers=3)
 
 # PostgreSQL connection details
 DB_CONFIG = {
-    'dbname': 'file_processor',      # Replace with your database name
-    'user': 'postgres',      # Replace with your username
-    'password': 'zxcvbnm',         # Replace with your password
-    'host': '192.168.1.13',                # Use 'localhost' if the DB is local
-    'port': '5432'                      # Default PostgreSQL port
+    'dbname': 'file_processor',
+    'user': 'postgres',
+    'password': 'zxcvbnm',
+    'host': '192.168.1.13',
+    'port': '5432'
 }
 
 # Create a connection to PostgreSQL
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
-# Updated PostgreSQL DB creation to store the file link
+# PostgreSQL store the file link
 def create_table():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -112,12 +111,14 @@ def validate_delimiter(file_path, expected_delimiter=','):
 def validate_regex(df, column_name, regex_pattern):
     if column_name in df.columns:
         regex = re.compile(regex_pattern)
-        if df[column_name].apply(lambda x: isinstance(x, str) and not regex.match(x)).any():
+        # Skip validation if the cell is NaN (empty)
+        if df[column_name].apply(lambda x: isinstance(x, str) and not regex.match(x) if pd.notna(x) else False).any():
             print(f"Column {column_name} contains values that don't match the regex pattern {regex_pattern}")
             return False
     else:
         print(f"Skipping regex validation: Column '{column_name}' not found")
         return True
+
 
 # Check for double commas in the CSV file
 def validate_double_commas(df):
@@ -241,7 +242,7 @@ def retrieve_file_link(file_name):
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Query to retrieve the file path
+        #retrieve the file path
         query = "SELECT file_path FROM csv_data WHERE file_name = %s"
         cursor.execute(query, (file_name,))
         result = cursor.fetchone()
@@ -283,7 +284,7 @@ if __name__ == "__main__":
 
     try:
         while True:
-            time.sleep(1)  # Keep the script running
+            time.sleep(1)
     except KeyboardInterrupt:
         observer.stop()
     observer.join()
