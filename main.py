@@ -13,7 +13,7 @@ from watchdog.observers import Observer
 
 executor = ThreadPoolExecutor(max_workers=3)
 
-# PostgreSQL connection details
+# PostgreSQL connection
 DB_CONFIG = {
     'dbname': 'file_processor',
     'user': 'postgres',
@@ -22,11 +22,11 @@ DB_CONFIG = {
     'port': '5432'
 }
 
-# Create a connection to PostgreSQL
+#connection to PostgreSQL
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
-# PostgreSQL store the file link
+# PostgreSQL storing file link
 def create_table():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -38,7 +38,7 @@ def create_table():
     conn.commit()
     conn.close()
 
-# Function to analyze empty columns
+#analyze empty columns
 def analyze_empty_columns(df):
     missing_data = df.isnull().mean() * 100
     columns_with_missing = missing_data[missing_data > 0]
@@ -51,7 +51,7 @@ def analyze_empty_columns(df):
 
     return columns_with_missing
 
-# Validate the number of columns in each row dynamically
+# Validate number of columns in each row dynamically
 def validate_column_count(df):
     num_columns = len(df.columns)
     if df.apply(lambda row: len(row) == num_columns, axis=1).all():
@@ -89,7 +89,7 @@ def validate_duplicates(df):
         return False
     return True
 
-# Validate data types (e.g., numeric columns should contain only numbers)
+# Validate data types
 def validate_data_types(df):
     for col in df.columns:
         if pd.api.types.is_numeric_dtype(df[col]):
@@ -98,7 +98,7 @@ def validate_data_types(df):
                 return False
     return True
 
-# Check for improper delimiters in the file
+# Check for improper delimiters
 def validate_delimiter(file_path, expected_delimiter=','):
     with open(file_path, 'r') as f:
         sniffer = csv.Sniffer()
@@ -108,10 +108,10 @@ def validate_delimiter(file_path, expected_delimiter=','):
             return False
     return True
 
+#email check
 def validate_regex(df, column_name, regex_pattern):
     if column_name in df.columns:
         regex = re.compile(regex_pattern)
-        # Skip validation if the cell is NaN (empty)
         if df[column_name].apply(lambda x: isinstance(x, str) and not regex.match(x) if pd.notna(x) else False).any():
             print(f"Column {column_name} contains values that don't match the regex pattern {regex_pattern}")
             return False
@@ -120,7 +120,7 @@ def validate_regex(df, column_name, regex_pattern):
         return True
 
 
-# Check for double commas in the CSV file
+# Check for double commas
 def validate_double_commas(df):
     for col in df.columns:
         if df[col].apply(lambda x: isinstance(x, str) and ',,' in x).any():
@@ -198,9 +198,8 @@ def insert_into_db(file_name, file_path):
             break
         except psycopg2.OperationalError as e:
             print(f"Database is locked, retrying... (Attempt {attempt + 1})")
-            time.sleep(5)  # Increased delay between retries
+            time.sleep(5)
 
-# Modify the process_file function to store the file path in the database
 def process_file(file_path):
     print(f"Processing file: {file_path}")
     retries = 3
@@ -218,7 +217,7 @@ def process_file(file_path):
             # Move the file to 'done' folder
             done_file_path = shutil.move(file_path, 'done')
 
-            # Insert the file link into the database
+            # Inserting file link to db
             print(f"Inserting file link for {done_file_path} into the database.")
             insert_into_db(os.path.basename(done_file_path), done_file_path)
 
@@ -236,13 +235,13 @@ def process_file(file_path):
                 print(f"File {file_path} moved to error folder due to an error.")
             return {"data": [], "done": [], "error": [os.path.basename(file_path)], "folder": "error"}
 
-# Retrieve the file link from PostgreSQL DB
+# Retrieving file link from PostgreSQL DB
 def retrieve_file_link(file_name):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        #retrieve the file path
+        #retrieving file path
         query = "SELECT file_path FROM csv_data WHERE file_name = %s"
         cursor.execute(query, (file_name,))
         result = cursor.fetchone()
@@ -250,7 +249,7 @@ def retrieve_file_link(file_name):
         conn.close()
 
         if result:
-            return result[0]  # Returning the file path
+            return result[0]  # Returning file path
         else:
             print("File not found in the database.")
             return None
@@ -272,7 +271,6 @@ class Handler(FileSystemEventHandler):
     def on_created(self, event):
         self.process(event)
 
-# Main function to start observing the directory
 if __name__ == "__main__":
     create_table()  # Ensure the table exists
     path = 'data'  # Directory to watch
