@@ -163,7 +163,7 @@ def validate_csv(file_path):
             print("Double commas validation failed")
             return False, None
 
-        # Email regex validation (only if the 'Email' column exists)
+        # Email regex validation
         email_regex = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
         if not validate_regex(df, "Email", email_regex):
             print("Regex validation (Email format) failed")
@@ -272,8 +272,8 @@ class Handler(FileSystemEventHandler):
         self.process(event)
 
 if __name__ == "__main__":
-    create_table()  # Ensure the table exists
-    path = 'data'  # Directory to watch
+    create_table()
+    path = 'data'
     observer = Observer()
     event_handler = Handler()
     observer.schedule(event_handler, path, recursive=False)
