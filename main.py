@@ -22,23 +22,27 @@ DB_CONFIG = {
     'port': '5432'
 }
 
-#connection to PostgreSQL
+# Connection to PostgreSQL
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
-# PostgreSQL storing file link
-def create_table():
+# Create table with dynamic columns based on the CSV headers
+def create_table_from_csv(df, table_name='csv_data'):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS csv_data (
-                        file_name TEXT,
-                        file_path TEXT,
-                        processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )''')
+
+    # Build the CREATE TABLE statement dynamically based on the CSV columns
+    columns = df.columns
+    create_query = f"CREATE TABLE IF NOT EXISTS {table_name} ("
+    create_query += ', '.join([f'"{col}" TEXT' for col in columns])
+    create_query += ', processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);'
+
+    cursor.execute(create_query)
     conn.commit()
     conn.close()
+    print(f"Table {table_name} created with columns: {', '.join(columns)}")
 
-#analyze empty columns
+# Analyze empty columns
 def analyze_empty_columns(df):
     missing_data = df.isnull().mean() * 100
     columns_with_missing = missing_data[missing_data > 0]
@@ -78,7 +82,6 @@ def validate_empty_values(df, threshold=0.3):
         missing_count = df[col].isnull().sum()
         if missing_count > max_missing_threshold:
             print(f"Column '{col}' has {missing_count} missing values, exceeding {threshold*100}% threshold.")
-            print(f"Column '{col}' is allowed to have more than {threshold*100}% missing values.")
     
     return True
 
@@ -108,7 +111,7 @@ def validate_delimiter(file_path, expected_delimiter=','):
             return False
     return True
 
-#email check
+# Regex validation for emails
 def validate_regex(df, column_name, regex_pattern):
     if column_name in df.columns:
         regex = re.compile(regex_pattern)
@@ -118,7 +121,6 @@ def validate_regex(df, column_name, regex_pattern):
     else:
         print(f"Skipping regex validation: Column '{column_name}' not found")
         return True
-
 
 # Check for double commas
 def validate_double_commas(df):
@@ -181,17 +183,17 @@ def validate_csv(file_path):
         print(f"Error validating CSV: {e}")
         return False, None
 
-# Insert the file path into PostgreSQL DB with retry mechanism
-def insert_into_db(file_name, file_path):
+# Insert the file name into PostgreSQL DB with retry mechanism
+def insert_into_db(file_name):
     retries = 5
     for attempt in range(retries):
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
 
-            # Insert the file name and path into the database
-            insert_query = "INSERT INTO csv_data (file_name, file_path) VALUES (%s, %s)"
-            cursor.execute(insert_query, (file_name, file_path))
+            # Insert the file name into the database
+            insert_query = "INSERT INTO csv_data (file_name) VALUES (%s)"
+            cursor.execute(insert_query, (file_name,))
 
             conn.commit()
             conn.close()
@@ -200,6 +202,7 @@ def insert_into_db(file_name, file_path):
             print(f"Database is locked, retrying... (Attempt {attempt + 1})")
             time.sleep(5)
 
+# Process file and insert data into the database
 def process_file(file_path):
     print(f"Processing file: {file_path}")
     retries = 3
@@ -214,12 +217,29 @@ def process_file(file_path):
                 shutil.move(file_path, 'error')
                 return {"data": [], "done": [], "error": [os.path.basename(file_path)], "folder": "error"}
 
+            # Create a table dynamically based on the CSV columns
+            create_table_from_csv(df)
+
+            # Insert data into the database
+            conn = get_db_connection()
+            cursor = conn.cursor()
+
+            # Insert rows into the dynamically created table
+            for _, row in df.iterrows():
+                columns = ', '.join([f'"{col}"' for col in df.columns])
+                placeholders = ', '.join(['%s'] * len(df.columns))
+                insert_query = f"INSERT INTO csv_data ({columns}) VALUES ({placeholders})"
+                cursor.execute(insert_query, tuple(row))
+
+            conn.commit()
+            conn.close()
+
             # Move the file to 'done' folder
             done_file_path = shutil.move(file_path, 'done')
 
             # Inserting file link to db
             print(f"Inserting file link for {done_file_path} into the database.")
-            insert_into_db(os.path.basename(done_file_path), done_file_path)
+            insert_into_db(os.path.basename(done_file_path))
 
             print(f"File {os.path.basename(file_path)} processed successfully and moved to 'done'!")
             return {"data": [], "done": [os.path.basename(done_file_path)], "error": [], "folder": "done"}
@@ -241,48 +261,44 @@ def retrieve_file_link(file_name):
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        #retrieving file path
-        query = "SELECT file_path FROM csv_data WHERE file_name = %s"
+        # Retrieving file name
+        query = "SELECT file_name FROM csv_data WHERE file_name = %s"
         cursor.execute(query, (file_name,))
         result = cursor.fetchone()
 
         conn.close()
-
         if result:
-            return result[0]  # Returning file path
-        else:
-            print("File not found in the database.")
-            return None
+            return result[0]
+    except Exception as e:
+        print(f"Error retrieving file link: {e}")
+    return None
 
-    except psycopg2.Error as e:
-        print(f"Database error: {e}")
-        return None
+# Watchdog event handler
+class Watcher:
+    def __init__(self, path='.'):
+        self.observer = Observer()
+        self.path = path
 
-# Handle file detection
+    def run(self):
+        event_handler = Handler()
+        self.observer.schedule(event_handler, self.path, recursive=True)
+        self.observer.start()
+        print("Monitoring started...")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            self.observer.stop()
+        self.observer.join()
+
+# File event handler
 class Handler(FileSystemEventHandler):
-    def process(self, event):
+    def on_created(self, event):
         if event.is_directory:
             return
+        executor.submit(process_file, event.src_path)
 
-        if event.event_type == 'created':
-            print(f"New file detected: {event.src_path}")
-            executor.submit(process_file, event.src_path)
-
-    def on_created(self, event):
-        self.process(event)
-
+# Start the file processor
 if __name__ == "__main__":
-    create_table()
-    path = 'data'
-    observer = Observer()
-    event_handler = Handler()
-    observer.schedule(event_handler, path, recursive=False)
-    observer.start()
-    print("Monitoring started...")
-
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        observer.stop()
-    observer.join()
+    watcher = Watcher(path='data/')
+    watcher.run()
