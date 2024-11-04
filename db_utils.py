@@ -1,69 +1,65 @@
-import psycopg2
 import pandas as pd
+import psycopg2
 
-DB_CONFIG = {
-    'dbname': 'file_processor',
-    'user': 'postgres',
-    'password': 'zxcvbnm',
-    'host': '192.168.1.13',
-    'port': '5432'
-}
+from config import DB_CONFIG
+
 
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
-# Create table with dynamic columns based on the CSV structure
-def create_table_from_csv(file_path, table_name='csv_data'):
+def create_table_from_csv(file_path, table_name):
     conn = get_db_connection()
     cursor = conn.cursor()
-
-    # Read the CSV file to get the columns
-    df = pd.read_csv(file_path)
-    columns = df.columns
-
-    # Dynamically build the CREATE TABLE query
-    create_query = f"CREATE TABLE IF NOT EXISTS {table_name} ("
-    create_query += ', '.join([f'"{col}" TEXT' for col in columns])
-    create_query += ', processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);'
-
+    df_headers = pd.read_csv(file_path, nrows=1)
+    create_query = f"CREATE TABLE IF NOT EXISTS {table_name} (" + ', '.join([f'"{col}" TEXT' for col in df_headers.columns]) + ');'
     cursor.execute(create_query)
     conn.commit()
     conn.close()
-    print(f"Table {table_name} created with columns: {', '.join(columns)}")
 
-
-# Insert CSV data into the dynamically created table
-def insert_csv_data_into_db(file_path, table_name='csv_data'):
-    df = pd.read_csv(file_path)
-    
+# Function to insert rows into the database in chunks of 100 rows
+def insert_into_db(file_path, table_name):
     conn = get_db_connection()
     cursor = conn.cursor()
+    chunk_size = 100  # Process 100 rows at a time
+    total_rows_inserted = 0  # To keep track of total rows inserted
 
-    # Convert dataframe to tuples and prepare INSERT query
-    columns = ', '.join([f'"{col}"' for col in df.columns])
-    placeholders = ', '.join(['%s' for _ in df.columns])
-    insert_query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
-
-    try:
-        for _, row in df.iterrows():
-            cursor.execute(insert_query, tuple(row))
+    for chunk in pd.read_csv(file_path, chunksize=chunk_size):
+        # Prepare the insert statement for the chunk
+        columns = ', '.join([f'"{col}"' for col in chunk.columns])
+        placeholders = ', '.join(['%s'] * len(chunk.columns))
+        insert_query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
+        
+        # Convert chunk to a list of tuples for insertion
+        data = [tuple(row) for row in chunk.itertuples(index=False, name=None)]
+        
+        # Execute batch insert
+        cursor.executemany(insert_query, data)
         conn.commit()
-        print(f"Data from {file_path} inserted successfully into {table_name}.")
-    except psycopg2.Error as e:
-        print(f"Database insertion error: {e}")
-    finally:
-        conn.close()
+
+        # Update the total rows inserted
+        total_rows_inserted += len(data)
+
+        # Calculate the range of rows inserted
+        start_row = total_rows_inserted - len(data) + 1
+        end_row = total_rows_inserted
+
+        # Print the range of rows inserted
+        print(f"Inserted rows {start_row} to {end_row} in {table_name}.")
+
+    conn.close()
+    print(f"All data from {file_path} inserted into table {table_name} in chunks of {chunk_size} rows.")
 
 
-def retrieve_file_link(file_name):
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        query = "SELECT file_path FROM csv_data WHERE file_name = %s"
-        cursor.execute(query, (file_name,))
-        result = cursor.fetchone()
-        conn.close()
-        return result[0] if result else None
-    except psycopg2.Error as e:
-        print(f"Database error: {e}")
-        return None
+
+#def retrieve_file_link(table_name, file_name):
+#    try:
+#        conn = get_db_connection()
+  #      cursor = conn.cursor()
+#        query = f"SELECT file_name FROM {table_name} WHERE file_name = %s"
+ #       cursor.execute(query, (file_name,))
+#        result = cursor.fetchone()
+#        conn.close()
+ #       return result[0] if result else None
+ #   except Exception as e:
+ #       print(f"Error retrieving file link: {e}")
+  #      return None#
