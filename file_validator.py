@@ -4,7 +4,7 @@ import re
 import pandas as pd
 
 
-# Analyze empty columns
+#Empty columns
 def analyze_empty_columns(df):
     missing_data = df.isnull().mean() * 100
     columns_with_missing = missing_data[missing_data > 0]
@@ -16,38 +16,46 @@ def analyze_empty_columns(df):
     return columns_with_missing
 
 
-# Validate the number of columns in each row dynamically
+#Same elements as columns
 def validate_column_count(df):
     num_columns = len(df.columns)
     return df.apply(lambda row: len(row) == num_columns, axis=1).all()
 
 
-# Validate if headers exist
-def validate_headers(df, mandatory_columns=None):
-    if mandatory_columns:
-        missing_columns = [col for col in mandatory_columns if col not in df.columns]
-        if missing_columns:
-            print(f"Missing mandatory columns: {missing_columns}")
-            return False
+#missing or duplicate columns
+def validate_headers(df):
+    #missing
+    empty_columns = [col for col in df.columns if col.strip() == '']
+    if empty_columns:
+        print(f"Error: The following columns have no header names: {empty_columns}")
+        return False
+
+    #duplicate
+    duplicate_columns = df.columns[df.columns.duplicated()]
+    if duplicate_columns.any():
+        print(f"Error: Duplicate columns found: {duplicate_columns.tolist()}")
+        return False
+    
+    print("Headers are valid (no missing or duplicate columns).")
     return True
 
 
+#check for missing values
 def validate_empty_values(df, threshold=0.3):
     total_rows = len(df)
     max_missing_threshold = threshold * total_rows
-    has_exceeding_missing_values = False  # Track if any column exceeds the threshold
+    has_exceeding_missing_values = False
 
     for col in df.columns:
         missing_count = df[col].isnull().sum()
         if missing_count > max_missing_threshold:
             print(f"Column '{col}' has {missing_count} missing values, exceeding {threshold * 100}% threshold.")
-            has_exceeding_missing_values = True  # Found at least one column that exceeds the threshold
+            has_exceeding_missing_values = True
     
-    # If any column exceeds the threshold, you can log it but still return True to indicate validation passed
     if has_exceeding_missing_values:
         print("Warning: Some columns have missing values exceeding the defined threshold, but the file will still be validated.")
     
-    return True  # Always return True to indicate the file is validated
+    return True
 
 
 
@@ -59,7 +67,7 @@ def validate_duplicates(df):
     return True
 
 
-# Validate data types
+#check for valid numeric values
 def validate_data_types(df):
     for col in df.columns:
         if pd.api.types.is_numeric_dtype(df[col]):
@@ -69,11 +77,11 @@ def validate_data_types(df):
     return True
 
 
-# Check for improper delimiters
+#delimeter check
 def validate_delimiter(file_path, expected_delimiter=','):
     with open(file_path, 'r') as f:
         sniffer = csv.Sniffer()
-        dialect = sniffer.sniff(f.read(1024))
+        dialect = sniffer.sniff(f.read())
         if dialect.delimiter != expected_delimiter:
             print(f"Invalid delimiter found. Expected '{expected_delimiter}' but got '{dialect.delimiter}'.")
             return False
@@ -111,26 +119,24 @@ def validate_csv(file_path):
             print("Delimiter validation failed")
             return False
 
-        chunk_size = 100  # Number of rows per chunk
+        chunk_size = 100
         chunk_number = 1
 
-        # Use an iterator to read the CSV file in chunks
         for chunk in pd.read_csv(file_path, chunksize=chunk_size):
             print(f"\nProcessing chunk {chunk_number} with {len(chunk)} rows")
 
-            # Analyze empty columns
+            # Analyzing empty columns
             empty_columns_analysis = analyze_empty_columns(chunk)
             print("Missing values analysis:")
-            print(empty_columns_analysis)  # Print the analysis for visibility
+            print(empty_columns_analysis)
 
-            # Apply multiple validation checks
+            #multiple validation checks
             if not validate_column_count(chunk):
                 print(f"Column count validation failed in chunk {chunk_number}")
                 return False
 
-            if not validate_empty_values(chunk, threshold=0.3):  # This will always return True now
+            if not validate_empty_values(chunk, threshold=0.3):
                 print(f"Empty values validation failed in chunk {chunk_number}")
-                # Not applicable anymore since it never fails based on empty values
 
             if not validate_duplicates(chunk):
                 print(f"Duplicate rows validation failed in chunk {chunk_number}")

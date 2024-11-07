@@ -20,16 +20,16 @@ def process_file(file_path):
                 shutil.move(file_path, 'error')
                 return {"data": [], "done": [], "error": [os.path.basename(file_path)], "folder": "error"}
 
-            # Extract the file name without extension to use as table name
+            #Get the file name without its extension
             table_name = os.path.splitext(os.path.basename(file_path))[0]
 
-            # Create a table dynamically based on the CSV columns
+            # Creating table dynamically based on the CSV columns
             create_table_from_csv(file_path, table_name)
 
             # Insert data into the database
             insert_into_db(file_path, table_name)
 
-            # Move the file to 'done' folder after successful processing and insertion
+            # Movint the file to done folder
             done_file_path = shutil.move(file_path, 'done')
             print(f"File {os.path.basename(file_path)} processed successfully and moved to 'done'!")
             return {"data": [], "done": [os.path.basename(done_file_path)], "error": [], "folder": "done"}

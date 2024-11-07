@@ -16,20 +16,19 @@ def create_table_from_csv(file_path, table_name):
     conn.commit()
     conn.close()
 
-# Function to insert rows into the database in chunks of 100 rows
 def insert_into_db(file_path, table_name):
     conn = get_db_connection()
     cursor = conn.cursor()
-    chunk_size = 100  # Process 100 rows at a time
-    total_rows_inserted = 0  # To keep track of total rows inserted
+    chunk_size = 100
+    total_rows_inserted = 0
 
     for chunk in pd.read_csv(file_path, chunksize=chunk_size):
-        # Prepare the insert statement for the chunk
+        #insert statement for chunk
         columns = ', '.join([f'"{col}"' for col in chunk.columns])
         placeholders = ', '.join(['%s'] * len(chunk.columns))
         insert_query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
         
-        # Convert chunk to a list of tuples for insertion
+        # Converting chunk to list of tuples for insertion
         data = [tuple(row) for row in chunk.itertuples(index=False, name=None)]
         
         # Execute batch insert
